@@ -1,0 +1,85 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Cloud Build configuration for the LLM Hallucination Tester
+#
+# This pipeline:
+#   1. Builds the Docker image.
+#   2. Pushes it to Google Artifact Registry.
+#   3. Deploys to Cloud Run with the GEMINI_API_KEY sourced from
+#      Secret Manager (never stored in the image or YAML).
+#
+# Required Cloud Build substitution variables (set in the trigger or CLI):
+#   _REGION         — e.g. us-central1
+#   _AR_REPO        — Artifact Registry repo name, e.g. hallucination-tester
+#   _SERVICE_NAME   — Cloud Run service name
+#   _PROJECT_ID     — GCP project ID (auto-populated by Cloud Build as $PROJECT_ID)
+# ──────────────────────────────────────────────────────────────────────────────
+
+substitutions:
+  _REGION: us-central1
+  _AR_REPO: hallucination-tester
+  _SERVICE_NAME: hallucination-tester
+  _IMAGE_TAG: latest
+
+steps:
+  # ── Step 1: Build Docker image ──────────────────────────────────────────────
+  - name: "gcr.io/cloud-builders/docker"
+    id: build
+    args:
+      - build
+      - "--tag"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_IMAGE_TAG}"
+      - "--tag"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${SHORT_SHA}"
+      - "--cache-from"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_IMAGE_TAG}"
+      - "."
+
+  # ── Step 2: Push both tags ───────────────────────────────────────────────────
+  - name: "gcr.io/cloud-builders/docker"
+    id: push-latest
+    waitFor: [build]
+    args:
+      - push
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_IMAGE_TAG}"
+
+  - name: "gcr.io/cloud-builders/docker"
+    id: push-sha
+    waitFor: [build]
+    args:
+      - push
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${SHORT_SHA}"
+
+  # ── Step 3: Deploy to Cloud Run ─────────────────────────────────────────────
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    id: deploy
+    waitFor: [push-latest, push-sha]
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - "${_SERVICE_NAME}"
+      - "--image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${SHORT_SHA}"
+      - "--region=${_REGION}"
+      - "--platform=managed"
+      - "--allow-unauthenticated"
+      - "--port=8080"
+      - "--memory=512Mi"
+      - "--cpu=1"
+      - "--concurrency=80"
+      - "--min-instances=0"
+      - "--max-instances=10"
+      - "--timeout=120"
+      # Inject secret — never stored in plaintext anywhere
+      - "--set-secrets=OPENAI_API_KEY=OPENAI_API_KEY:latest"
+      - "--set-env-vars=LOG_LEVEL=INFO,MAX_QUESTIONS=10,MODEL_NAME=gpt-4o-mini"
+
+# Store built images in Artifact Registry
+images:
+  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_IMAGE_TAG}"
+  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${SHORT_SHA}"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_MEDIUM
+
+timeout: "1200s"  # 20-minute build timeout

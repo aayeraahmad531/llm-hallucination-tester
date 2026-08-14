@@ -1,0 +1,26 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# LLM Hallucination Tester — Python Dependencies
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Web framework
+fastapi>=0.111.0
+
+# ASGI server (dev + production)
+uvicorn[standard]>=0.29.0
+gunicorn>=22.0.0
+
+# LangChain ecosystem
+langchain>=0.3.0
+langchain-openai>=0.2.0
+
+# Data validation
+pydantic>=2.7.0
+
+# Environment variable loading
+python-dotenv>=1.0.0
+
+# Retry logic
+tenacity>=8.3.0
+
+# HTTP client (needed by anthropic SDK async support)
+httpx>=0.27.0
