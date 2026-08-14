@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLM Hallucination Tester 🔬</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="static/index.css">
+</head>
+<body>
+  <!-- Ambient background glow elements -->
+  <div class="glow-sphere glow-sphere-1"></div>
+  <div class="glow-sphere glow-sphere-2"></div>
+
+  <div class="app-container">
+    <header class="app-header">
+      <div class="header-logo">
+        <span class="logo-emoji">🔬</span>
+        <h1>LLM Hallucination Tester</h1>
+      </div>
+      <div class="server-status" id="server-status">
+        <span class="status-indicator status-offline"></span>
+        <span class="status-text">Connecting...</span>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <!-- Input Panel -->
+      <section class="panel glass-panel config-panel">
+        <h2 class="panel-title">Probe Configuration</h2>
+        <p class="panel-desc">Generate factual questions about any topic, obtain model answers, and cross-examine them for inaccuracies and hallucinations.</p>
+        
+        <form id="tester-form" class="tester-form">
+          <div class="form-group">
+            <label for="topic">Topic to Analyze</label>
+            <input 
+              type="text" 
+              id="topic" 
+              name="topic" 
+              placeholder="e.g. The Apollo 11 moon landing or Discovery of Radium" 
+              required
+              minlength="3"
+              maxlength="500"
+              value="The Apollo 11 moon landing"
+            >
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="num_questions">
+                Factual Questions
+                <span class="value-badge" id="questions-val">5</span>
+              </label>
+              <div class="slider-container">
+                <input 
+                  type="range" 
+                  id="num_questions" 
+                  name="num_questions" 
+                  min="1" 
+                  max="10" 
+                  value="5"
+                >
+                <div class="slider-labels">
+                  <span>1</span>
+                  <span>5</span>
+                  <span>10</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="model">OpenAI Model</label>
+              <select id="model" name="model">
+                <option value="gpt-4o-mini" selected>gpt-4o-mini</option>
+                <option value="gpt-4o">gpt-4o</option>
+                <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+              </select>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary" id="submit-btn">
+            <span class="btn-text">Execute Analysis</span>
+            <span class="btn-icon">⚡</span>
+          </button>
+        </form>
+      </section>
+
+      <!-- Loading / Progress Stage -->
+      <section class="panel glass-panel loading-panel hidden" id="loading-panel">
+        <h2 class="panel-title text-center">Pipeline Executing</h2>
+        <div class="pipeline-tracker">
+          <div class="pipeline-step" id="step-1">
+            <div class="step-num">1</div>
+            <div class="step-details">
+              <h3>Question Generation</h3>
+              <p>LLM is formulating verifiable questions about the topic...</p>
+            </div>
+            <div class="step-status">Pending</div>
+          </div>
+          
+          <div class="pipeline-step" id="step-2">
+            <div class="step-num">2</div>
+            <div class="step-details">
+              <h3>Answer Generation</h3>
+              <p>LLM is answering generated questions concurrently...</p>
+            </div>
+            <div class="step-status">Pending</div>
+          </div>
+          
+          <div class="pipeline-step" id="step-3">
+            <div class="step-num">3</div>
+            <div class="step-details">
+              <h3>Cross-Examination</h3>
+              <p>Independent LLM fact-checking instance is scoring answers...</p>
+            </div>
+            <div class="step-status">Pending</div>
+          </div>
+        </div>
+
+        <div class="spinner-container">
+          <div class="double-bounce1"></div>
+          <div class="double-bounce2"></div>
+        </div>
+      </section>
+
+      <!-- Results Dashboard -->
+      <section class="panel glass-panel results-panel hidden" id="results-panel">
+        <div class="results-header">
+          <h2 class="panel-title">Verification Dashboard</h2>
+          <button class="btn btn-secondary btn-sm" id="reset-btn">Reset</button>
+        </div>
+
+        <div class="dashboard-metrics">
+          <div class="metric-card glass-card score-card" id="accuracy-card">
+            <svg class="progress-ring" width="120" height="120">
+              <circle class="progress-ring__circle-bg" stroke="rgba(255,255,255,0.06)" stroke-width="8" fill="transparent" r="50" cx="60" cy="60"/>
+              <circle class="progress-ring__circle" stroke="#10b981" stroke-width="8" fill="transparent" r="50" cx="60" cy="60" id="accuracy-ring"/>
+            </svg>
+            <div class="score-label">
+              <span class="score-num" id="accuracy-percent">100%</span>
+              <span class="score-desc">Factual Accuracy</span>
+            </div>
+          </div>
+
+          <div class="metrics-grid">
+            <div class="metric-card glass-card">
+              <div class="metric-icon accurate-icon">✓</div>
+              <div class="metric-info">
+                <span class="metric-value" id="count-accurate">0</span>
+                <span class="metric-title">Accurate Answers</span>
+              </div>
+            </div>
+            <div class="metric-card glass-card">
+              <div class="metric-icon hallucinated-icon">⚠</div>
+              <div class="metric-info">
+                <span class="metric-value" id="count-hallucinated">0</span>
+                <span class="metric-title">Hallucinations</span>
+              </div>
+            </div>
+            <div class="metric-card glass-card">
+              <div class="metric-icon uncertain-icon">?</div>
+              <div class="metric-info">
+                <span class="metric-value" id="count-uncertain">0</span>
+                <span class="metric-title">Uncertain</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="summary-banner glass-card" id="summary-text-container">
+          <p id="summary-text">Summary of findings will go here.</p>
+        </div>
+
+        <div class="results-list-container">
+          <h3 class="section-subtitle">Detailed Question Reports</h3>
+          <div class="results-list" id="results-list">
+            <!-- Dynamic result items inserted here -->
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- JavaScript -->
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      // DOM Elements
+      const serverStatus = document.getElementById("server-status");
+      const testerForm = document.getElementById("tester-form");
+      const numQuestions = document.getElementById("num_questions");
+      const questionsVal = document.getElementById("questions-val");
+      const submitBtn = document.getElementById("submit-btn");
+      const loadingPanel = document.getElementById("loading-panel");
+      const resultsPanel = document.getElementById("results-panel");
+      const resetBtn = document.getElementById("reset-btn");
+      
+      const step1 = document.getElementById("step-1");
+      const step2 = document.getElementById("step-2");
+      const step3 = document.getElementById("step-3");
+      
+      const accuracyRing = document.getElementById("accuracy-ring");
+      const accuracyPercent = document.getElementById("accuracy-percent");
+      const countAccurate = document.getElementById("count-accurate");
+      const countHallucinated = document.getElementById("count-hallucinated");
+      const countUncertain = document.getElementById("count-uncertain");
+      const summaryText = document.getElementById("summary-text");
+      const resultsList = document.getElementById("results-list");
+
+      // Set up radial progress ring
+      const radius = accuracyRing.r.baseVal.value;
+      const circumference = radius * 2 * Math.PI;
+      accuracyRing.style.strokeDasharray = `${circumference} ${circumference}`;
+      accuracyRing.style.strokeDashoffset = circumference;
+
+      function setAccuracyProgress(percent, colorClass) {
+        const offset = circumference - (percent / 100) * circumference;
+        accuracyRing.style.strokeDashoffset = offset;
+        accuracyPercent.textContent = `${percent}%`;
+        
+        // Dynamic colors
+        if (percent >= 80) {
+          accuracyRing.style.stroke = "var(--emerald)";
+        } else if (percent >= 50) {
+          accuracyRing.style.stroke = "var(--amber)";
+        } else {
+          accuracyRing.style.stroke = "var(--rose)";
+        }
+      }
+
+      // Check Health on load
+      async function checkHealth() {
+        try {
+          const res = await fetch("/health");
+          if (res.ok) {
+            serverStatus.innerHTML = `
+              <span class="status-indicator status-online"></span>
+              <span class="status-text">Server Active</span>
+            `;
+          } else {
+            throw new Error("unhealthy");
+          }
+        } catch (e) {
+          serverStatus.innerHTML = `
+            <span class="status-indicator status-offline"></span>
+            <span class="status-text">Server Offline</span>
+          `;
+        }
+      }
+      checkHealth();
+      setInterval(checkHealth, 15000);
+
+      // Slider listener
+      numQuestions.addEventListener("input", (e) => {
+        questionsVal.textContent = e.target.value;
+      });
+
+      // Reset UI
+      resetBtn.addEventListener("click", () => {
+        resultsPanel.classList.add("hidden");
+        testerForm.closest("section").classList.remove("hidden");
+        testerForm.reset();
+        questionsVal.textContent = "5";
+      });
+
+      // Submit Form
+      testerForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        
+        const topic = document.getElementById("topic").value.trim();
+        const numQ = parseInt(numQuestions.value);
+        const model = document.getElementById("model").value;
+
+        // Visual State Changes
+        testerForm.closest("section").classList.add("hidden");
+        loadingPanel.classList.remove("hidden");
+        resultsPanel.classList.add("hidden");
+
+        // Initialize progress tracker
+        setStepState(step1, "active", "Generating Questions...");
+        setStepState(step2, "pending", "Pending");
+        setStepState(step3, "pending", "Pending");
+
+        try {
+          // Fake progress updates for a smoother visual feel before API results land
+          // (Since standard FastAPI call completes in one block, we simulate visual steps)
+          setTimeout(() => {
+            if (!loadingPanel.classList.contains("hidden")) {
+              setStepState(step1, "complete", "Done");
+              setStepState(step2, "active", "Generating Answers...");
+            }
+          }, 3500);
+
+          setTimeout(() => {
+            if (!loadingPanel.classList.contains("hidden") && step2.classList.contains("active")) {
+              setStepState(step2, "complete", "Done");
+              setStepState(step3, "active", "Fact-Checking...");
+            }
+          }, 7000);
+
+          const response = await fetch("/check-hallucination", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              topic: topic,
+              num_questions: numQ,
+              model: model
+            }),
+          });
+
+          if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.detail || "Upstream server error");
+          }
+
+          const data = await response.json();
+          renderResults(data);
+          
+        } catch (error) {
+          alert(`Analysis Failed: ${error.message}`);
+          loadingPanel.classList.add("hidden");
+          testerForm.closest("section").classList.remove("hidden");
+        }
+      });
+
+      function setStepState(stepElement, state, text) {
+        stepElement.className = `pipeline-step ${state}`;
+        stepElement.querySelector(".step-status").textContent = text;
+      }
+
+      function renderResults(data) {
+        // Complete the pipeline visually
+        setStepState(step1, "complete", "Done");
+        setStepState(step2, "complete", "Done");
+        setStepState(step3, "complete", "Done");
+
+        setTimeout(() => {
+          loadingPanel.classList.add("hidden");
+          resultsPanel.classList.remove("hidden");
+
+          // Calculate counters
+          let accurate = 0;
+          let hallucinated = 0;
+          let uncertain = 0;
+
+          resultsList.innerHTML = "";
+
+          data.results.forEach((res, index) => {
+            if (res.verdict === "ACCURATE") accurate++;
+            else if (res.verdict === "HALLUCINATED") hallucinated++;
+            else uncertain++;
+
+            const verdictClass = res.verdict.toLowerCase();
+            const badgeIcon = res.verdict === "ACCURATE" ? "✓" : res.verdict === "HALLUCINATED" ? "⚠" : "?";
+
+            const resultCard = document.createElement("div");
+            resultCard.className = "result-card glass-card";
+            resultCard.innerHTML = `
+              <div class="result-card-header">
+                <span class="verdict-badge badge-${verdictClass}">
+                  <span class="badge-icon">${badgeIcon}</span>
+                  ${res.verdict}
+                </span>
+                <span class="confidence-badge">
+                  Confidence: ${(res.confidence * 100).toFixed(0)}%
+                </span>
+              </div>
+              <div class="result-card-body">
+                <div class="qa-item">
+                  <div class="qa-q">
+                    <span class="qa-label">Q</span>
+                    <p class="qa-text">${escapeHtml(res.question)}</p>
+                  </div>
+                  <div class="qa-a">
+                    <span class="qa-label">A</span>
+                    <p class="qa-text">${escapeHtml(res.answer)}</p>
+                  </div>
+                </div>
+                <div class="reasoning-box">
+                  <div class="reasoning-header">Fact-Checking Verdict Rationale:</div>
+                  <p class="reasoning-text">${escapeHtml(res.reasoning)}</p>
+                </div>
+              </div>
+            `;
+            resultsList.appendChild(resultCard);
+          });
+
+          // Metrics update
+          countAccurate.textContent = accurate;
+          countHallucinated.textContent = hallucinated;
+          countUncertain.textContent = uncertain;
+          summaryText.textContent = data.summary;
+
+          const rate = (1 - data.hallucination_rate) * 100;
+          setAccuracyProgress(Math.round(rate));
+        }, 500);
+      }
+
+      function escapeHtml(text) {
+        if (!text) return "";
+        return text
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+    });
+  </script>
+</body>
+</html>
