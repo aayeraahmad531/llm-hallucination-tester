@@ -187,6 +187,15 @@ If you want to query it programmatically instead of using the UI:
 
 ---
 
+## Known Limitations & Future Plans
+
+* **Self-Grading Bias:** By default, the same model configuration evaluates its own answers, which can introduce evaluation bias. For production use, it is recommended to evaluate smaller models (like `gpt-4o-mini`) using a more capable model (like `gpt-4o`) as the judge.
+* **Manual Context Ingestion:** The reference context must be supplied as a raw text string in the API payload. There is currently no support for document uploads (PDF/TXT) or direct RAG vector store integration.
+* **Anthropic/Gemini Support:** Currently, the system is designed around OpenAI model endpoints. Future iterations will support Claude and Gemini for cross-provider hallucination benchmarks.
+* **Cost:** Because the pipeline performs fact-checking calls per generated question, testing large batches of questions on premium models can accumulate significant API costs.
+
+---
+
 ## Responsible AI Disclaimer
 
 > [!IMPORTANT]
