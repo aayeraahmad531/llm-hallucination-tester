@@ -6,21 +6,53 @@ It also comes with a nice little dark-mode dashboard so you don't have to keep r
 
 ---
 
-## How It Works Under the Hood
+## Architecture & How It Works
 
-The app runs a 3-stage pipeline using LangChain:
+The application orchestrates an upgraded 3-stage pipeline using FastAPI, LangChain, and Pydantic:
 
-1. **Question Generation:** The model generates `N` factual, verifiable questions about the topic you gave it.
-2. **Answer Generation:** The model answers all those questions (it runs these concurrently so it doesn't take forever).
-3. **Fact-Checking:** A separate LLM call evaluates each answer, scoring it as `ACCURATE`, `HALLUCINATED`, or `UNCERTAIN` and gives a short reasoning.
+```mermaid
+graph TD
+    A[Client Request] --> B[FastAPI Endpoint: POST /check-hallucination]
+    B --> C{Reference context provided?}
+    
+    %% Stage 1
+    C -- Yes --> D1[Stage 1: Question Gen <br> Constrained by Reference Context]
+    C -- No --> D2[Stage 1: Question Gen <br> Broad Knowledge]
+    D1 & D2 --> E[Pydantic Structured Output / Manual Parse Fallback]
+    
+    %% Stage 2
+    E --> F[Stage 2: Answer Gen <br> Concurrent Workers limited by Semaphore]
+    F --> G[Retry Logic with exponential back-off <br> Transient vs Permanent detection]
+    G --> H[Partial Failure Handling <br> Capture error & label as UNCERTAIN]
+    
+    %% Stage 3
+    H --> I{Reference context provided?}
+    I -- Yes --> J1[Stage 3: Fact-Check <br> Based ONLY on Reference Context]
+    I -- No --> J2[Stage 3: Fact-Check <br> Broad Knowledge]
+    J1 & J2 --> K[Pydantic Structured Output / Manual Parse Fallback]
+    K --> L[Verdict Normalization & Confidence clipping]
+    
+    %% Output
+    L --> M[Collect Stage Latencies & UUID analysis_id]
+    M --> N[Return HallucinationResponse with metadata]
+```
+
+### Upgraded Enterprise Features
+1. **Optional Reference-Based Verification**: Pass a `reference` text string. The pipeline will constrain question generation and fact-checking to only use the reference context rather than the LLM's generic knowledge base.
+2. **Structured Outputs & Fallbacks**: Utilizes LangChain's `.with_structured_output` with custom Pydantic schemas. If a model fails to return structured output, it seamlessly falls back to robust regex and manual JSON parsing.
+3. **Concurrency Control**: A semaphore (`asyncio.Semaphore`) restricts active concurrent requests to prevent triggering rate-limit blocks (configurable via `MAX_CONCURRENCY`).
+4. **Transient Error Retries**: Uses `tenacity` with exponential back-off to retry transient errors (network timeouts, rate limits, 5xx server errors) while failing fast on permanent errors (auth failures, 400 Bad Requests).
+5. **Partial Failure Resilience**: Individual stage errors are isolated. If an answer fails to generate, it is marked as `UNCERTAIN` instead of crashing the entire batch of questions.
+6. **Detailed Observability**: Outputs timing latency (in milliseconds) for each pipeline stage, a unique `analysis_id` (UUIDv4) for tracking, UTC ISO timestamp, and a structured `evaluation_summary` containing rate metrics.
 
 ---
 
 ## Tech Stack
 
-* **Backend:** Python, FastAPI, LangChain (specifically `langchain-openai`)
-* **Frontend:** Vanilla HTML & CSS (served directly by FastAPI)
-* **Deployment/Container:** Docker, GCP Cloud Run configuration
+* **Backend:** Python, FastAPI, LangChain (`langchain-openai`)
+* **Frontend:** HTML & CSS (served directly by FastAPI at `/`)
+* **Deployment:** Docker, GCP Cloud Run configuration
+* **Testing:** Pytest / Unittest with comprehensive mock coverage
 
 ---
 
@@ -66,7 +98,13 @@ Copy the example file to `.env`:
 cp .env.example .env
 ```
 
-Open `.env` and paste your OpenAI key in `OPENAI_API_KEY`.
+Open `.env` and set the following parameters:
+* `OPENAI_API_KEY`: Your OpenAI API Key
+* `MAX_QUESTIONS`: Server-side cap for questions (default: `10`)
+* `MAX_CONCURRENCY`: Semaphore limit for concurrent LLM requests (default: `3`)
+* `MAX_RETRIES`: Maximum retry attempts for transient errors (default: `3`)
+* `LLM_TIMEOUT`: Timeout in seconds for LLM calls (default: `30.0`)
+* `ALLOWED_ORIGINS`: Allowed CORS origins comma-separated (default: `*`)
 
 ### 3. Run the Server
 
@@ -90,7 +128,7 @@ If you don't want to deal with Python environments, just build the Docker image:
 docker build -t hallucination-tester .
 
 # Run it (makes sure it reads your local .env file)
-docker run -p 8080:8080 --env-file .env hallucination-tester
+docker run -p 8080:8080 --env-file .env -e PORT=8080 hallucination-tester
 ```
 
 ---
@@ -101,12 +139,13 @@ If you want to query it programmatically instead of using the UI:
 
 ### `POST /check-hallucination`
 
-**Request:**
+**Request with Reference:**
 ```json
 {
   "topic": "Discovery of Radium",
-  "num_questions": 3,
-  "model": "gpt-4o-mini"
+  "num_questions": 2,
+  "model": "gpt-4o-mini",
+  "reference": "Marie and Pierre Curie announced their discovery of radium on December 26, 1898, to the French Academy of Sciences."
 }
 ```
 
@@ -114,25 +153,42 @@ If you want to query it programmatically instead of using the UI:
 ```json
 {
   "topic": "Discovery of Radium",
-  "questions_tested": 3,
+  "questions_tested": 2,
   "hallucination_rate": 0.0,
   "results": [
     {
-      "question": "Who discovered radium?",
-      "answer": "Marie and Pierre Curie discovered radium.",
+      "question": "When did Marie and Pierre Curie announce their discovery of radium?",
+      "answer": "They announced the discovery on December 26, 1898.",
       "verdict": "ACCURATE",
       "confidence": 1.0,
-      "reasoning": "Marie and Pierre Curie discovered radium in 1898. This is a well-known historical fact."
+      "reasoning": "Fully matches the reference text which states they announced the discovery on December 26, 1898.",
+      "llm_judge_verdict": "ACCURATE"
     }
   ],
-  "summary": "Tested 3 questions about 'Discovery of Radium'. Results: 3 accurate, 0 hallucinated, 0 uncertain. Hallucination rate: 0%."
+  "summary": "Tested 2 questions about 'Discovery of Radium'. Results: 2 accurate, 0 hallucinated, 0 uncertain. Hallucination rate: 0%.",
+  "analysis_id": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+  "timestamp": "2026-08-15T09:30:00Z",
+  "model_used": "gpt-4o-mini",
+  "evaluation_mode": "REFERENCE_BASED",
+  "question_generation_latency_ms": 105.2,
+  "answer_generation_latency_ms": 250.6,
+  "fact_check_latency_ms": 120.4,
+  "total_latency_ms": 476.2,
+  "evaluation_summary": {
+    "accurate_count": 2,
+    "hallucinated_count": 0,
+    "uncertain_count": 0,
+    "hallucination_rate": 0.0,
+    "summary_text": "Tested 2 questions about 'Discovery of Radium'. Results: 2 accurate, 0 hallucinated, 0 uncertain. Hallucination rate: 0%."
+  },
+  "disclaimer": "This tool provides automated LLM-based factuality assessments and should not be treated as definitive ground truth. Results may contain errors and should be independently verified for high-stakes use."
 }
 ```
 
 ---
 
-## Known Limitations & Future Plans
+## Responsible AI Disclaimer
 
-* **Rate Limits:** Right now, the async gathering is pretty aggressive. If you ask for 10 questions, it fires them all off at once. If you run this multiple times in a row, you're going to hit OpenAI rate limit errors. I need to add a semaphore or some queue to throttle requests.
-* **Anthropic/Gemini Support:** Currently, it's hardcoded to OpenAI since that's what I needed it for, but I want to add dropdown options for Claude and Gemini to compare them.
-* **Cost:** Stage 3 runs fact-checking calls per question, which can add up if you run large question batches on expensive models.
+> [!IMPORTANT]
+> **This tool provides automated LLM-based factuality assessments and should not be treated as definitive ground truth. Results may contain errors and should be independently verified for high-stakes use.**
+

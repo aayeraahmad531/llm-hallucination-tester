@@ -44,12 +44,15 @@ class HallucinationRequest(BaseModel):
     num_questions: int = Field(
         default=5,
         ge=1,
-        le=10,
-        description="Number of factual questions to generate (1-10).",
+        description="Number of factual questions to generate.",
     )
     model: str = Field(
         default="gpt-4o-mini",
         description="OpenAI model identifier to use (e.g. gpt-4o-mini).",
+    )
+    reference: Optional[str] = Field(
+        default=None,
+        description="Optional reference/context to verify answers against.",
     )
 
     @field_validator("topic")
@@ -75,6 +78,30 @@ class QuestionAnswer(BaseModel):
     )
 
 
+class QuestionGenerationResult(BaseModel):
+    """Structured response from the LLM for Stage 1."""
+
+    questions: List[str] = Field(..., description="List of generated questions.")
+
+
+class VerificationAssessment(BaseModel):
+    """Structured assessment of a QA pair from the LLM for Stage 3."""
+
+    verdict: Verdict = Field(..., description="ACCURATE, HALLUCINATED, or UNCERTAIN verdict.")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Heuristic confidence score.")
+    reasoning: str = Field(..., description="Brief explanation supporting the verdict.")
+
+
+class EvaluationSummary(BaseModel):
+    """Detailed summary counts and rates for the evaluation."""
+
+    accurate_count: int = Field(..., description="Number of accurate answers.")
+    hallucinated_count: int = Field(..., description="Number of hallucinated answers.")
+    uncertain_count: int = Field(..., description="Number of uncertain answers.")
+    hallucination_rate: float = Field(..., description="Factual hallucination rate.")
+    summary_text: str = Field(..., description="Human-readable text summary.")
+
+
 # ---------------------------------------------------------------------------
 # Result / Response Models
 # ---------------------------------------------------------------------------
@@ -97,6 +124,11 @@ class VerificationResult(BaseModel):
     reasoning: str = Field(
         ..., description="Brief explanation supporting the verdict."
     )
+    # New fields (backward compatible)
+    llm_judge_verdict: Optional[Verdict] = Field(
+        default=None,
+        description="The raw verdict returned by the LLM fact checker before normalization."
+    )
 
 
 class HallucinationResponse(BaseModel):
@@ -117,6 +149,33 @@ class HallucinationResponse(BaseModel):
     )
     summary: str = Field(
         ..., description="Human-readable summary of the hallucination analysis."
+    )
+    
+    # New metadata fields (backward compatible)
+    analysis_id: str = Field(..., description="Unique UUID for this analysis session.")
+    timestamp: str = Field(..., description="ISO 8601 UTC timestamp of the analysis.")
+    model_used: str = Field(..., description="Model used for the evaluation.")
+    evaluation_mode: str = Field(..., description="Evaluation mode: LLM_JUDGE_ONLY or REFERENCE_BASED.")
+    
+    # Timing fields
+    question_generation_latency_ms: float = Field(0.0, description="Stage 1 latency in milliseconds.")
+    answer_generation_latency_ms: float = Field(0.0, description="Stage 2 latency in milliseconds.")
+    fact_check_latency_ms: float = Field(0.0, description="Stage 3 latency in milliseconds.")
+    total_latency_ms: float = Field(0.0, description="Total pipeline latency in milliseconds.")
+    
+    # Structured summary
+    evaluation_summary: Optional[EvaluationSummary] = Field(
+        default=None,
+        description="Detailed evaluation counts and summary."
+    )
+    
+    # Responsible AI disclaimer
+    disclaimer: str = Field(
+        default=(
+            "This tool provides automated LLM-based factuality assessments and should not be treated as definitive ground truth. "
+            "Results may contain errors and should be independently verified for high-stakes use."
+        ),
+        description="Responsible AI disclaimer."
     )
 
 

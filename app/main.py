@@ -99,9 +99,15 @@ def create_app() -> FastAPI:
     # -----------------------------------------------------------------------
     # CORS Middleware
     # -----------------------------------------------------------------------
+    allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "*")
+    if allowed_origins_env == "*":
+        origins = ["*"]
+    else:
+        origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
+
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Tighten for production as needed
+        allow_origins=origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -184,10 +190,10 @@ async def check_hallucination(payload: HallucinationRequest) -> HallucinationRes
 
     **Pipeline stages:**
 
-    1. **Question Generation** — Groq generates ``num_questions`` factual
+    1. **Question Generation** — OpenAI generates ``num_questions`` factual
        questions about ``topic``.
-    2. **Answer Generation** — Groq answers each question concurrently.
-    3. **Fact-Checking** — A second Groq call scores each answer as
+    2. **Answer Generation** — OpenAI answers each question concurrently.
+    3. **Fact-Checking** — A second OpenAI call scores each answer as
        ACCURATE, HALLUCINATED, or UNCERTAIN with a confidence score.
 
     Args:
@@ -199,8 +205,8 @@ async def check_hallucination(payload: HallucinationRequest) -> HallucinationRes
 
     Raises:
         HTTPException 400: If ``num_questions`` exceeds the server-side cap.
-        HTTPException 401: If the Groq API key is missing.
-        HTTPException 502: If the upstream Groq API call fails.
+        HTTPException 401: If the OpenAI API key is missing.
+        HTTPException 502: If the upstream OpenAI API call fails.
     """
     if not OPENAI_API_KEY:
         raise HTTPException(
@@ -215,10 +221,11 @@ async def check_hallucination(payload: HallucinationRequest) -> HallucinationRes
         )
 
     logger.info(
-        "Received /check-hallucination request — topic=%r  num_questions=%d  model=%s",
+        "Received /check-hallucination request — topic=%r  num_questions=%d  model=%s  reference_mode=%s",
         payload.topic,
         payload.num_questions,
         payload.model,
+        "Yes" if payload.reference else "No",
     )
 
     try:
@@ -229,6 +236,7 @@ async def check_hallucination(payload: HallucinationRequest) -> HallucinationRes
         result = await checker.run(
             topic=payload.topic,
             num_questions=payload.num_questions,
+            reference=payload.reference,
         )
     except ValueError as exc:
         logger.error("Validation / parsing error: %s", exc)

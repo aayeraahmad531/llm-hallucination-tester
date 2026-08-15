@@ -56,7 +56,7 @@ USER appuser
 
 # ── Health check (Cloud Run also probes /health via HTTP) ────────────────────
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+    CMD curl -f http://localhost:${PORT:-8080}/health || exit 1
 
 # ── Production server: gunicorn driving uvicorn workers ─────────────────────
 #
@@ -66,12 +66,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
 # --timeout 120                      — LLM calls can take 30-60 s
 # --access-logfile -                 — route access logs to stdout (Cloud Logging)
 # --error-logfile -                  — route error logs to stdout
-CMD ["gunicorn", \
-     "app.main:app", \
-     "-k", "uvicorn.workers.UvicornWorker", \
-     "--workers", "2", \
-     "--bind", "0.0.0.0:8080", \
-     "--timeout", "120", \
-     "--access-logfile", "-", \
-     "--error-logfile", "-", \
-     "--log-level", "info"]
+CMD ["sh", "-c", "gunicorn app.main:app -k uvicorn.workers.UvicornWorker --workers 2 --bind 0.0.0.0:${PORT:-8080} --timeout 120 --access-logfile - --error-logfile - --log-level info"]
