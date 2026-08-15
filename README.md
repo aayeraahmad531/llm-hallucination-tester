@@ -39,7 +39,7 @@ graph TD
 
 ### Upgraded Enterprise Features
 1. **Optional Reference-Based Verification**: Pass a `reference` text string. The pipeline will constrain question generation and fact-checking to only use the reference context rather than the LLM's generic knowledge base.
-2. **Structured Outputs & Fallbacks**: Utilizes LangChain's `.with_structured_output` with custom Pydantic schemas. If a model fails to return structured output, it seamlessly falls back to robust regex and manual JSON parsing.
+2. **Structured Outputs & Fallbacks**: Utilizes LangChain's `.with_structured_output` with custom Pydantic schemas. If a model fails to return structured output, it falls back to regex and manual JSON parsing.
 3. **Concurrency Control**: A semaphore (`asyncio.Semaphore`) restricts active concurrent requests to prevent triggering rate-limit blocks (configurable via `MAX_CONCURRENCY`).
 4. **Transient Error Retries**: Uses `tenacity` with exponential back-off to retry transient errors (network timeouts, rate limits, 5xx server errors) while failing fast on permanent errors (auth failures, 400 Bad Requests).
 5. **Partial Failure Resilience**: Individual stage errors are isolated. If an answer fails to generate, it is marked as `UNCERTAIN` instead of crashing the entire batch of questions.
